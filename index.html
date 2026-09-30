@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0a0d" />
+    <title>CHROMEFORM — Y2K shape lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Chromeform home">
+          <span class="brand-mark"><i></i><i></i><i></i></span>
+          <span>CHROMEFORM</span>
+          <em>β</em>
+        </a>
+        <div class="top-actions">
+          <span class="autosave"><b></b> live render</span>
+          <button class="icon-button" id="resetCamera" title="Сбросить камеру" aria-label="Сбросить камеру">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 1 5.6"/><path d="M20 4v7h-7"/></svg>
+          </button>
+          <button class="help-button" id="helpButton">?</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="sidebar editor-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">01 / CREATE</p>
+            <h1>Нарисуй<br /><span>свой блеск.</span></h1>
+            <p class="intro">Один жест превращается в объёмную форму. Камера и материал уже настроены.</p>
+          </div>
+
+          <div class="create-tabs" role="tablist" aria-label="Способ создания">
+            <button class="create-tab is-active" data-tab="draw" role="tab" aria-selected="true"><span class="tiny-icon pen"></span> Рисовать</button>
+            <button class="create-tab" data-tab="shape" role="tab" aria-selected="false"><span class="tiny-icon upload"></span> Загрузить</button>
+          </div>
+
+          <section class="draw-stage tab-content is-active" id="drawTab">
+            <div class="canvas-wrap">
+              <canvas id="drawingCanvas" width="560" height="400" aria-label="Поле для рисования формы"></canvas>
+              <div class="draw-hint" id="drawHint"><span>+</span><small>зажми и нарисуй<br />замкнутую форму</small></div>
+              <div class="canvas-grid"></div>
+            </div>
+            <div class="draw-toolbar">
+              <span id="strokeInfo">DEMO SHAPE</span>
+              <button class="text-button" id="clearDrawing">очистить</button>
+              <button class="text-button accent" id="applyDrawing">применить ↗</button>
+            </div>
+          </section>
+
+          <section class="upload-stage tab-content" id="shapeTab">
+            <label class="drop-zone" for="shapeInput" id="shapeDrop">
+              <input id="shapeInput" type="file" accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" hidden />
+              <span class="drop-graphic"><i></i><i></i><i></i></span>
+              <strong>Загрузи свой шейп</strong>
+              <small>SVG — идеально · PNG, JPG тоже работают</small>
+              <span class="upload-pill">выбрать файл</span>
+            </label>
+            <p class="upload-note">SVG сохраняет точный контур. Из растрового изображения мы извлечём силуэт.</p>
+          </section>
+
+          <div class="shape-presets">
+            <div class="section-line"><span>Быстрый старт</span><span class="line"></span></div>
+            <div class="preset-row">
+              <button class="preset is-selected" data-preset="blob" title="Жидкий блоб"><span class="p-blob"></span></button>
+              <button class="preset" data-preset="star" title="Звезда"><span class="p-star">✦</span></button>
+              <button class="preset" data-preset="heart" title="Сердце"><span class="p-heart">♥</span></button>
+              <button class="preset" data-preset="flower" title="Цветок"><span class="p-flower">✽</span></button>
+              <button class="preset" data-preset="diamond" title="Алмаз"><span class="p-diamond">◆</span></button>
+            </div>
+          </div>
+        </aside>
+
+        <section class="viewer-panel">
+          <div class="viewer-header">
+            <div class="viewer-meta"><span class="eye"></span><span id="modelStatus">FORM_001 / BLOB</span></div>
+            <span class="viewer-tip">drag to orbit <b>↗</b></span>
+          </div>
+          <div class="scene-wrap" id="sceneWrap">
+            <canvas id="threeCanvas"></canvas>
+            <div class="scene-watermark">CHROME<br />FORM</div>
+            <div class="axis-widget" aria-hidden="true"><i class="x">X</i><i class="y">Y</i><i class="z">Z</i></div>
+            <div class="rendering-badge"><span></span> <span id="renderStatus">REALTIME</span></div>
+          </div>
+          <div class="viewer-footer">
+            <div class="zoom-control"><button id="zoomOut" aria-label="Уменьшить">−</button><span id="zoomValue">100%</span><button id="zoomIn" aria-label="Увеличить">+</button></div>
+            <div class="rotate-control"><button class="round-tool is-active" id="toggleRotate" title="Автовращение"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5.6"/><path d="M20 4v7h-7"/></svg></button><button class="round-tool" id="randomizeAngle" title="Другой ракурс"><svg viewBox="0 0 24 24"><path d="m7 10 5-5 5 5"/><path d="M12 5v14"/></svg></button></div>
+          </div>
+        </section>
+
+        <aside class="sidebar properties-panel">
+          <div class="properties-head">
+            <p class="eyebrow">02 / MATERIAL</p>
+            <button class="shuffle" id="randomizeMaterial" title="Случайный материал">⟳</button>
+          </div>
+
+          <section class="control-section">
+            <div class="section-label"><span>Покрытие</span><output id="finishName">LIQUID CHROME</output></div>
+            <div class="finish-grid">
+              <button class="finish-card is-selected" data-finish="chrome"><span class="finish-swatch chrome"></span><small>Chrome</small></button>
+              <button class="finish-card" data-finish="violet"><span class="finish-swatch violet"></span><small>Ultra violet</small></button>
+              <button class="finish-card" data-finish="acid"><span class="finish-swatch acid"></span><small>Acid metal</small></button>
+              <button class="finish-card" data-finish="pearl"><span class="finish-swatch pearl"></span><small>Ice pearl</small></button>
+            </div>
+          </section>
+
+          <section class="control-section texture-section">
+            <div class="section-label"><span>Своя текстура</span><button id="clearTexture" class="mini-clear" disabled>сбросить</button></div>
+            <label class="texture-upload" for="textureInput" id="textureDrop">
+              <input id="textureInput" type="file" accept="image/*" hidden />
+              <span class="texture-preview" id="texturePreview"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m5 18 4.5-5 3.2 3 2.2-2 4.1 4"/></svg></span>
+              <span><strong id="textureText">Добавить texture map</strong><small>JPG, PNG, WEBP</small></span>
+              <b>+</b>
+            </label>
+          </section>
+
+          <section class="control-section sliders">
+            <label class="range-row"><span>Объём</span><output id="depthValue">42</output><input id="depthRange" type="range" min="12" max="90" value="42" /></label>
+            <label class="range-row"><span>Скругление</span><output id="bevelValue">38</output><input id="bevelRange" type="range" min="0" max="75" value="38" /></label>
+            <label class="range-row"><span>Зерно</span><output id="roughnessValue">18</output><input id="roughnessRange" type="range" min="0" max="100" value="18" /></label>
+          </section>
+
+          <section class="control-section light-control">
+            <div class="section-label"><span>Light position</span><output id="lightValue">+35°</output></div>
+            <div class="light-orbit"><button class="light-dot" id="lightDot" aria-label="Изменить позицию света"></button><span class="light-center">✦</span></div>
+          </section>
+
+          <div class="export-box">
+            <p>03 / EXPORT</p>
+            <div class="export-row">
+              <button class="export-main" id="exportPng"><span>↓</span> PNG <small>4K</small></button>
+              <button class="export-video" id="exportVideo"><span>◉</span> VIDEO</button>
+            </div>
+            <small id="exportHint">transparent background · 3840 px</small>
+          </div>
+        </aside>
+      </section>
+
+      <div class="toast" id="toast" role="status"></div>
+      <div class="modal" id="helpModal" aria-hidden="true">
+        <div class="modal-card">
+          <button class="modal-close" data-close-modal>×</button>
+          <p class="eyebrow">HOW IT WORKS</p>
+          <h2>От линии<br />до <span>хрома.</span></h2>
+          <ol><li><b>01</b> Нарисуй замкнутый контур или загрузи SVG.</li><li><b>02</b> Выбери металл, настрой объём и свет.</li><li><b>03</b> Сохрани рендер в PNG или запиши 6-секундный WEBM.</li></ol>
+          <button class="modal-done" data-close-modal>понятно <span>→</span></button>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

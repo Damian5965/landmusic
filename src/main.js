@@ -9,6 +9,8 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const drawingCanvas = $('#drawingCanvas');
 const drawContext = drawingCanvas.getContext('2d');
 const sceneCanvas = $('#threeCanvas');
+const fallbackCanvas = $('#fallbackCanvas');
+const fallbackContext = fallbackCanvas.getContext('2d');
 const sceneWrap = $('#sceneWrap');
 const toast = $('#toast');
 
@@ -41,31 +43,14 @@ let currentShapes = [];
 let currentTextureURL = null;
 
 // --- THREE / studio -------------------------------------------------------
-const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setClearColor(0x000000, 0);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.16;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Arena's embedded preview can be opened with WebGL disabled. The editor must
+// remain usable in that case, so the renderer is optional and has a canvas fallback.
+let renderer = null;
+let usingFallback = false;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, .1, 100);
 camera.position.set(0, .25, 7.1);
-
-const controls = new OrbitControls(camera, sceneCanvas);
-controls.enableDamping = true;
-controls.dampingFactor = .06;
-controls.enablePan = false;
-controls.minDistance = 3.5;
-controls.maxDistance = 12;
-controls.autoRotate = false;
-controls.target.set(0, 0, 0);
-
-const pmrem = new THREE.PMREMGenerator(renderer);
-const environmentScene = new RoomEnvironment();
-scene.environment = pmrem.fromScene(environmentScene, .055).texture;
-environmentScene.dispose();
-pmrem.dispose();
 
 const formRoot = new THREE.Group();
 formRoot.rotation.x = -.11;
@@ -90,13 +75,53 @@ scene.add(rimLight);
 const fillLight = new THREE.PointLight(0xcaff3d, 9, 12, 2);
 scene.add(fillLight);
 
+try {
+  renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.16;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const environmentScene = new RoomEnvironment();
+  scene.environment = pmrem.fromScene(environmentScene, .055).texture;
+  environmentScene.dispose();
+  pmrem.dispose();
+} catch (error) {
+  console.warn('WebGL preview unavailable; using canvas renderer instead.', error);
+  if (renderer) renderer.dispose();
+  renderer = null;
+  usingFallback = true;
+  sceneWrap.classList.add('is-fallback');
+  $('#renderStatus').textContent = 'CANVAS MODE';
+}
+
+const controls = new OrbitControls(camera, sceneCanvas);
+controls.enableDamping = true;
+controls.dampingFactor = .06;
+controls.enablePan = false;
+controls.minDistance = 3.5;
+controls.maxDistance = 12;
+controls.autoRotate = false;
+controls.target.set(0, 0, 0);
+
 function resizeRenderer() {
   const width = Math.max(1, sceneWrap.clientWidth);
   const height = Math.max(1, sceneWrap.clientHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  if (renderer) {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height, false);
+  } else {
+    const ratio = Math.min(window.devicePixelRatio, 2);
+    fallbackCanvas.width = Math.round(width * ratio);
+    fallbackCanvas.height = Math.round(height * ratio);
+    fallbackCanvas.style.width = `${width}px`;
+    fallbackCanvas.style.height = `${height}px`;
+    renderFallback();
+  }
 }
 
 function updateLight() {
@@ -107,6 +132,7 @@ function updateLight() {
   fillLight.position.set(-x * .65, -y * .4, 3);
   $('#lightValue').textContent = `${state.lightAngle >= 0 ? '+' : ''}${Math.round(state.lightAngle)}°`;
   $('#lightDot').style.transform = `rotate(${state.lightAngle - 35}deg)`;
+  if (!renderer) renderFallback();
 }
 
 function clearModel() {
@@ -158,6 +184,7 @@ function rebuildModel() {
   modelGroup.position.y -= .05;
   formRoot.add(modelGroup);
   updateMaterial();
+  if (!renderer) renderFallback();
 }
 
 function updateMaterial() {
@@ -218,6 +245,95 @@ function pointsToShape(points) {
   const limited = simplifyPoints(points, 160);
   const worldPoints = limited.map((point) => ({ x: (point.x - .5) * 5, y: (.5 - point.y) * 5 }));
   return regularShape(worldPoints);
+}
+
+function renderFallback() {
+  if (renderer || !fallbackContext || !fallbackCanvas.width) return;
+  const ratio = Math.min(window.devicePixelRatio, 2);
+  const width = fallbackCanvas.width / ratio;
+  const height = fallbackCanvas.height / ratio;
+  const context = fallbackContext;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+
+  const source = state.points.length > 2 ? state.points : pointsForPreset(state.preset);
+  if (source.length < 3) return;
+  const scale = Math.min(width, height) * .67;
+  const turn = formRoot.rotation.y;
+  const squash = .73 + Math.abs(Math.cos(turn)) * .22;
+  const points = source.map((point) => ({
+    x: width / 2 + (point.x - .5) * scale * squash,
+    y: height / 2 + (point.y - .5) * scale,
+  }));
+  const depth = 9 + state.depth * .48;
+  const sideX = Math.cos(turn + .55) * depth * .52;
+  const sideY = Math.sin(turn + .55) * depth * .34 + depth * .48;
+  const trace = (offsetX = 0, offsetY = 0) => {
+    context.beginPath();
+    points.forEach((point, index) => {
+      if (index === 0) context.moveTo(point.x + offsetX, point.y + offsetY);
+      else context.lineTo(point.x + offsetX, point.y + offsetY);
+    });
+    context.closePath();
+  };
+  const finish = state.finish;
+  const palettes = {
+    chrome: ['#101217', '#eef1f7', '#727783', '#fcfcff', '#242831'],
+    violet: ['#21103a', '#f0b9ff', '#6337df', '#f4dcff', '#321555'],
+    acid: ['#233100', '#e3ff65', '#668a00', '#f2ffb0', '#304600'],
+    pearl: ['#46616d', '#f4ffff', '#a6d9ff', '#ffe9fb', '#5a9fa5'],
+  };
+  const palette = palettes[finish] || palettes.chrome;
+
+  context.save();
+  context.filter = 'blur(18px)';
+  context.globalAlpha = .38;
+  context.fillStyle = finish === 'acid' ? '#bdf542' : finish === 'violet' ? '#a067ff' : '#dce5ff';
+  trace(sideX * .7, sideY + 15);
+  context.fill();
+  context.restore();
+
+  for (let layer = Math.ceil(depth); layer >= 0; layer -= 2) {
+    const part = layer / depth;
+    const side = context.createLinearGradient(width / 2, height / 2, width / 2 + sideX, height / 2 + sideY);
+    side.addColorStop(0, palette[0]);
+    side.addColorStop(.55, palette[2]);
+    side.addColorStop(1, '#08090d');
+    context.fillStyle = side;
+    trace(sideX * part, sideY * part);
+    context.fill();
+  }
+
+  const radians = THREE.MathUtils.degToRad(state.lightAngle);
+  const metal = context.createLinearGradient(
+    width / 2 - Math.cos(radians) * scale * .55,
+    height / 2 - Math.sin(radians) * scale * .55,
+    width / 2 + Math.cos(radians) * scale * .55,
+    height / 2 + Math.sin(radians) * scale * .55,
+  );
+  metal.addColorStop(0, palette[0]);
+  metal.addColorStop(.20, palette[1]);
+  metal.addColorStop(.46, palette[2]);
+  metal.addColorStop(.68, palette[3]);
+  metal.addColorStop(1, palette[4]);
+  trace();
+  context.fillStyle = metal;
+  context.fill();
+  context.lineWidth = Math.max(1, state.bevel / 25);
+  context.strokeStyle = 'rgba(255,255,255,.58)';
+  context.stroke();
+
+  context.save();
+  context.globalAlpha = .25;
+  context.globalCompositeOperation = 'screen';
+  const glint = context.createRadialGradient(width / 2 - scale * .12, height / 2 - scale * .2, 1, width / 2, height / 2, scale * .6);
+  glint.addColorStop(0, '#fff');
+  glint.addColorStop(.25, 'rgba(255,255,255,.2)');
+  glint.addColorStop(1, 'rgba(255,255,255,0)');
+  trace();
+  context.fillStyle = glint;
+  context.fill();
+  context.restore();
 }
 
 function simplifyPoints(points, maximum) {
@@ -451,7 +567,7 @@ function setTexture(file) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(1.35, 1.35);
-    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    texture.anisotropy = renderer ? renderer.capabilities.getMaxAnisotropy() : 1;
     if (state.customTexture) state.customTexture.dispose();
     state.customTexture = texture;
     updateMaterial();
@@ -599,6 +715,17 @@ async function exportPNG() {
   const exportWidth = Math.round(width * scale);
   const exportHeight = Math.round(height * scale);
   try {
+    if (!renderer) {
+      const output = document.createElement('canvas');
+      output.width = exportWidth;
+      output.height = exportHeight;
+      output.getContext('2d').drawImage(fallbackCanvas, 0, 0, exportWidth, exportHeight);
+      const blob = await new Promise((resolve) => output.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Browser не смог создать PNG');
+      saveBlob(blob, `chromeform-${Date.now()}.png`);
+      showToast('PNG 4K сохранён с прозрачным фоном');
+      return;
+    }
     renderer.setPixelRatio(1);
     renderer.setSize(exportWidth, exportHeight, false);
     camera.aspect = exportWidth / exportHeight;
@@ -625,7 +752,8 @@ function exportVideo() {
     return;
   }
   const button = $('#exportVideo');
-  const stream = renderer.domElement.captureStream(60);
+  const outputCanvas = renderer ? renderer.domElement : fallbackCanvas;
+  const stream = outputCanvas.captureStream(60);
   const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   const mimeType = mimeTypes.find((type) => MediaRecorder.isTypeSupported(type));
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 9_000_000 } : undefined);
@@ -670,7 +798,8 @@ function animate() {
   requestAnimationFrame(animate);
   if (state.autoRotate && modelGroup) modelGroup.rotation.y += .004;
   controls.update();
-  renderer.render(scene, camera);
+  if (renderer) renderer.render(scene, camera);
+  else renderFallback();
 }
 
 window.addEventListener('resize', () => { resizeRenderer(); resizeDrawingCanvas(); });
